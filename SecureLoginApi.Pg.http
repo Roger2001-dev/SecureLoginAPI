@@ -1,0 +1,6 @@
+@SecureLoginApi.Pg_HostAddress = http://localhost:5147
+
+GET {{SecureLoginApi.Pg_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
