@@ -18,11 +18,12 @@ public class AuthController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration _configuration;
-
-    public AuthController(ApplicationDbContext context, IConfiguration configuration)
+    private readonly TelegramService _telegramService;
+    public AuthController(ApplicationDbContext context, IConfiguration configuration, TelegramService telegramService)
     {
         _context = context;
         _configuration = configuration;
+        _telegramService = telegramService;
     }
 
     [HttpPost("register")] 
@@ -53,6 +54,23 @@ public class AuthController : ControllerBase
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
             return Unauthorized("Credenciales inválidas.");
+        }
+
+        bool isSuspiciousLogin = CheckIfLoginIsSuspicious(user, HttpContext);
+
+        if (isSuspiciousLogin)
+        {
+            var approvalRequest = new LoginApprovalRequest { UserId = user.Id };
+            _context.LoginApprovalRequests.Add(approvalRequest);
+            await _context.SaveChangesAsync();
+
+            await _telegramService.SendApprovalRequestAsync(user.Username, approvalRequest.Id);
+
+            return Ok(new
+            {
+                ApprovalRequired = true,
+                ApprovalRequestId = approvalRequest.Id
+            });
         }
 
         if (user.MfaEnabled)
@@ -106,6 +124,19 @@ public class AuthController : ControllerBase
         await SetRefreshToken(newRefreshToken, user);
 
         return Ok(new { AccessToken = newAccessToken, RefreshToken = newRefreshToken.Token });
+    }
+    [HttpGet("approval-status/{id}")]
+    public async Task<IActionResult> GetApprovalStatus(Guid id)
+    {
+        var request = await _context.LoginApprovalRequests.FindAsync(id);
+        if (request is null) return NotFound();
+
+        return Ok(new { Status = request.Status.ToString() });
+    }
+
+    private bool CheckIfLoginIsSuspicious(User user, HttpContext httpContext)
+    {
+        return false;
     }
     private string CreateJwtToken(User user)
     {
